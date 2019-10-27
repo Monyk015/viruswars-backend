@@ -7,5 +7,9 @@ defmodule VirusWarsWeb.Router do
 
   scope "/api", VirusWarsWeb do
     pipe_through :api
+
+    get "/home", HomeController, :index
+    post "/create", HomeController, :create
+    post "/join", HomeController, :join
   end
 end

@@ -2,7 +2,7 @@ defmodule VirusWarsWeb.UserSocket do
   use Phoenix.Socket
 
   ## Channels
-  # channel "room:*", VirusWarsWeb.RoomChannel
+  channel "game:*", VirusWarsWeb.GameChannel
 
   # Socket params are passed from the client and can
   # be used to verify and authenticate a user. After

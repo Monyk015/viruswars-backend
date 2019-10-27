@@ -1,6 +1,8 @@
 defmodule VirusWarsWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :virus_wars
 
+  plug CORSPlug, origin: "http://localhost:3000"
+
   socket "/socket", VirusWarsWeb.UserSocket,
     websocket: true,
     longpoll: false

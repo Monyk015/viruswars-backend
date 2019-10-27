@@ -4,7 +4,7 @@ use Mix.Config
 config :virus_wars, VirusWars.Repo,
   username: "postgres",
   password: "postgres",
-  database: "virus_wars_dev",
+  database: "viruswars",
   hostname: "localhost",
   show_sensitive_data_on_connection_error: true,
   pool_size: 10

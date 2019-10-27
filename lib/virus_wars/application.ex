@@ -11,9 +11,11 @@ defmodule VirusWars.Application do
       # Start the Ecto repository
       VirusWars.Repo,
       # Start the endpoint when the application starts
-      VirusWarsWeb.Endpoint
+      VirusWarsWeb.Endpoint,
       # Starts a worker by calling: VirusWars.Worker.start_link(arg)
       # {VirusWars.Worker, arg},
+      VirusWars.Lobby,
+      VirusWars.GameSupevisor
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
