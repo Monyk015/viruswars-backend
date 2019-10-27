@@ -34,7 +34,11 @@ defmodule VirusWars.Game do
           moves_left: 0..3,
           board: board(),
           is_first_moves: bool(),
-          message: :ok | :cannot_move_on_armor | :move_not_available
+          message:
+            :ok
+            | {:cannot_move_on_armor, coords()}
+            | {:move_not_available, coords()}
+            | {:loss, player_type()}
         }
   defstruct [
     :id,
@@ -111,7 +115,57 @@ defmodule VirusWars.Game do
     end
   end
 
+  def make_move(%{is_first_moves: true} = game, coords) do
+    board = game.board
+    cell = board[coords]
+
+    case cell do
+      {:empty, false} ->
+        %{game | message: {:move_not_available, coords}}
+
+      {:empty, true} ->
+        cell = {:living, game.current_player, false}
+        board = %{board | coords => cell}
+
+        is_first_moves =
+          if game.current_player == :player_1 do
+            true
+          else
+            false
+          end
+
+        moves_left =
+          if is_first_moves do
+            1
+          else
+            3
+          end
+
+        next_player = change_player(game.current_player)
+
+        board =
+          if not is_first_moves do
+            {board, _} = recalculate_available(board, next_player)
+            board
+          else
+            board
+          end
+
+        game = %{
+          game
+          | message: :ok,
+            board: board,
+            current_player: next_player,
+            is_first_moves: is_first_moves,
+            moves_left: moves_left
+        }
+
+        game
+    end
+  end
+
   def make_move(game, coords) do
+    other_player = change_player(game.current_player)
     cell = game.board[coords]
 
     case cell do
@@ -119,24 +173,190 @@ defmodule VirusWars.Game do
         %{game | message: :cannot_move_on_armor}
 
       {:living, _, false} ->
-        %{game | message: :move_not_available}
+        %{game | message: {:move_not_available, coords}}
 
       {:empty, false} ->
-        %{game | message: :move_not_available}
+        %{game | message: {:move_not_available, coords}}
 
       {:empty, true} ->
         cell = {:living, game.current_player, false}
-        board = %{game.board | coords => cell}
+        put_cell_and_recalculate(game, coords, cell)
 
-        game = %{
-          game
-          | message: :ok,
-            board: board,
-            current_player: change_player(game.current_player)
-        }
+      {:living, ^other_player, true} ->
+        cell = {:armor, game.current_player, false}
+        put_cell_and_recalculate(game, coords, cell)
     end
   end
 
+  defp put_cell_and_recalculate(game, coords, cell) do
+    board = game.board
+
+    board = %{board | coords => cell}
+
+    moves_left = game.moves_left - 1
+
+    {moves_left, next_player} =
+      if moves_left == 0 do
+        {3, change_player(game.current_player)}
+      else
+        {moves_left, game.current_player}
+      end
+
+    board =
+      board
+      |> disconnect_all_armor()
+      |> recalculate_connected_armor(next_player)
+
+    {board, is_there_available} = recalculate_available(board, next_player)
+
+    message = if is_there_available, do: :ok, else: {:loss, next_player}
+
+    game = %{
+      game
+      | message: message,
+        board: board,
+        moves_left: moves_left,
+        current_player: next_player
+    }
+
+    game
+  end
+
+  def recalculate_available(board, next_player) do
+    board =
+      board
+      |> Enum.map(fn
+        {coords, {:empty, _}} -> {coords, {:empty, false}}
+        {coords, {:living, player, _}} -> {coords, {:living, player, false}}
+        {coords, otherwise} -> {coords, otherwise}
+      end)
+      |> Enum.into(%{})
+
+    other_player = change_player(next_player)
+
+    board =
+      board
+      |> Enum.map(fn
+        {coords, {:empty, _}} ->
+          {coords,
+           {:empty,
+            living_cell_nearby?(board, coords, next_player) or
+              connected_armor_nearby?(board, coords, next_player)}}
+
+        # looking for cells belonging to other player with next_player cells nearby
+        {coords, {:living, ^other_player, _}} ->
+          {coords,
+           {:living, other_player,
+            living_cell_nearby?(board, coords, next_player) or
+              connected_armor_nearby?(board, coords, next_player)}}
+
+        {coords, otherwise} ->
+          {coords, otherwise}
+      end)
+      |> Enum.into(%{})
+
+    is_there_available =
+      Enum.any?(board, fn
+        {_coords, {:empty, true}} -> true
+        {_coords, {:living, _, true}} -> true
+        _ -> false
+      end)
+
+    {board, is_there_available}
+  end
+
+  defp right({@max_coord, _}), do: :none
+  defp right({i, j}), do: {:some, {i + 1, j}}
+
+  defp left({0, _}), do: :none
+  defp left({i, j}), do: {:some, {i - 1, j}}
+
+  defp up({_, @max_coord}), do: :none
+  defp up({i, j}), do: {:some, {i, j + 1}}
+
+  defp down({_, 0}), do: :none
+  defp down({i, j}), do: {:some, {i, j - 1}}
+
+  defp living_cell_nearby?(board, coords, player) do
+    cond do
+      living_cell_in_direction?(board, coords, player, &up(&1)) -> true
+      living_cell_in_direction?(board, coords, player, &down(&1)) -> true
+      living_cell_in_direction?(board, coords, player, &right(&1)) -> true
+      living_cell_in_direction?(board, coords, player, &left(&1)) -> true
+      true -> false
+    end
+  end
+
+  defp living_cell_in_direction?(board, coords, player, func) do
+    with {:some, coords} <- func.(coords),
+         {:living, ^player, _} <- board[coords] do
+      true
+    else
+      _ ->
+        false
+    end
+  end
+
+  defp connected_armor_nearby?(board, coords, player) do
+    cond do
+      connected_armor_in_direction?(board, coords, player, &up(&1)) -> true
+      connected_armor_in_direction?(board, coords, player, &down(&1)) -> true
+      connected_armor_in_direction?(board, coords, player, &right(&1)) -> true
+      connected_armor_in_direction?(board, coords, player, &left(&1)) -> true
+      true -> false
+    end
+  end
+
+  defp connected_armor_in_direction?(board, coords, player, func) do
+    with {:some, coords} <- func.(coords),
+         {:armor, ^player, true} <- board[coords] do
+      true
+    else
+      _ ->
+        false
+    end
+  end
+
+  defp disconnect_all_armor(board) do
+    board
+    |> Enum.map(fn
+      {coords, {:armor, player, _}} -> {coords, {:armor, player, false}}
+      otherwise -> otherwise
+    end)
+    |> Enum.into(%{})
+  end
+
+  defp recalculate_connected_armor(board, next_player) do
+    {board_list, acc} =
+      board
+      |> Enum.map_reduce(0, fn
+        {coords, {:armor, ^next_player, false}}, acc ->
+          is_connected =
+            living_cell_nearby?(board, coords, next_player) or
+              connected_armor_nearby?(board, coords, next_player)
+
+          acc = if is_connected, do: acc + 1, else: acc
+
+          cell = {:armor, next_player, is_connected}
+
+          {{coords, cell}, acc}
+
+        otherwise, acc ->
+          {otherwise, acc}
+      end)
+
+    board = board_list |> Enum.into(%{})
+
+    IO.inspect(board[{8, 5}])
+
+    if acc == 0 do
+      board
+    else
+      recalculate_connected_armor(board, next_player)
+    end
+  end
+
+  @spec change_player(:player_1 | :player_2) :: :player_1 | :player_2
   def change_player(:player_1), do: :player_2
   def change_player(:player_2), do: :player_1
 end
