@@ -36,4 +36,20 @@ defmodule VirusWarsWeb.GameChannelTest do
       socket(UserSocket)
       |> subscribe_and_join(GameChannel, "game:" <> "hehehehe")
   end
+
+  test "make a move", %{game_id: game_id, player_1_id: player_1_id, player_2_id: player_2_id} do
+    {:ok, %{id: player_1_id, player: :player_1}, socket_1} =
+      socket(UserSocket)
+      |> subscribe_and_join(GameChannel, "game:" <> game_id, %{"playerId" => player_1_id})
+
+    {:ok, %{id: player_2_id, player: :player_2}, socket_2} =
+      socket(UserSocket)
+      |> subscribe_and_join(GameChannel, "game:" <> game_id, %{"playerId" => player_2_id})
+
+    socket_1 |> push("move", %{"coords" => [0, 0]})
+
+    socket_2 |> push("move", %{"coords" => [12, 12]})
+
+    assert_broadcast("new_move", _)
+  end
 end

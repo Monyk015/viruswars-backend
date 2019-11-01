@@ -2,6 +2,18 @@ defmodule VirusWars.Game do
   import Ecto
   alias __MODULE__
 
+  defimpl String.Chars, for: Tuple do
+    def to_string(tuple) do
+      String.Chars.to_string(Tuple.to_list(tuple))
+    end
+  end
+
+  defimpl Jason.Encoder, for: Tuple do
+    def encode(value, opts) do
+      Jason.Encoder.List.encode(Tuple.to_list(value), opts)
+    end
+  end
+
   @type player :: %{
           id: String.t(),
           player: :player_1 | :player_2
@@ -50,6 +62,25 @@ defmodule VirusWars.Game do
     :is_first_moves,
     :message
   ]
+
+  defimpl Jason.Encoder, for: Game do
+    alias Jason.Encode
+
+    def encode(value, opts) do
+      board =
+        value.board
+        |> Enum.map(fn {{i, j}, val} ->
+          {"#{i},#{j}", Tuple.to_list(val)}
+        end)
+        |> Enum.into(%{})
+
+      message = if value.message == :ok, do: :ok, else: Tuple.to_list(value.message)
+
+      value = %Game{value | board: board, message: message}
+      res = Encode.map(Map.take(value, [:current_player, :moves_left, :board, :message]), opts)
+      res
+    end
+  end
 
   def init_player(player) do
     uuid = Ecto.UUID.generate()
@@ -102,12 +133,16 @@ defmodule VirusWars.Game do
     {:err, :all_busy, game}
   end
 
+  def get_player_by_id(game, nil) do
+    {:none}
+  end
+
   def get_player_by_id(game, player_id) do
     cond do
-      game.player_1.id == player_id ->
+      game.player_1 != nil and game.player_1.id == player_id ->
         {:some, game.player_1}
 
-      game.player_2.id == player_id ->
+      game.player_2 != nil and game.player_2.id == player_id ->
         {:some, game.player_2}
 
       true ->
@@ -170,7 +205,7 @@ defmodule VirusWars.Game do
 
     case cell do
       {:armor, _, _} ->
-        %{game | message: :cannot_move_on_armor}
+        %{game | message: {:cannot_move_on_armor, coords}}
 
       {:living, _, false} ->
         %{game | message: {:move_not_available, coords}}
@@ -205,7 +240,7 @@ defmodule VirusWars.Game do
     board =
       board
       |> disconnect_all_armor()
-      |> recalculate_connected_armor(next_player)
+      |> recalculate_connected_armor()
 
     {board, is_there_available} = recalculate_available(board, next_player)
 
@@ -326,11 +361,11 @@ defmodule VirusWars.Game do
     |> Enum.into(%{})
   end
 
-  defp recalculate_connected_armor(board, next_player) do
+  defp recalculate_connected_armor(board) do
     {board_list, acc} =
       board
       |> Enum.map_reduce(0, fn
-        {coords, {:armor, ^next_player, false}}, acc ->
+        {coords, {:armor, next_player, false}}, acc ->
           is_connected =
             living_cell_nearby?(board, coords, next_player) or
               connected_armor_nearby?(board, coords, next_player)
@@ -347,12 +382,10 @@ defmodule VirusWars.Game do
 
     board = board_list |> Enum.into(%{})
 
-    IO.inspect(board[{8, 5}])
-
     if acc == 0 do
       board
     else
-      recalculate_connected_armor(board, next_player)
+      recalculate_connected_armor(board)
     end
   end
 

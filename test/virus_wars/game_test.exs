@@ -110,7 +110,6 @@ defmodule VirusWars.GameTest do
       |> Game.make_move({11, 8})
       |> Game.make_move({11, 7})
 
-    IO.inspect(game.board)
     assert game.current_player == :player_1
     assert game.message == :ok
     assert game.board[{2, 3}] == {:living, :player_1, false}
